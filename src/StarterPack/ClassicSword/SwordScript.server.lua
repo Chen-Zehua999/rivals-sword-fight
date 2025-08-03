@@ -29,7 +29,8 @@ RunService = game:GetService("RunService")
 DamageValues = {
 	BaseDamage = 5,
 	SlashDamage = 10,
-	LungeDamage = 30
+	LungeDamage = 30,
+	HealOnKill = 15
 }
 
 --For R15 avatars
@@ -52,6 +53,9 @@ Sounds = {
 }
 
 ToolEquipped = false
+
+-- Track damaged humanoids and their death connections for kill detection
+DamagedHumanoids = {}
 
 --For Omega Rainbow Katana thumbnail to display a lot of particles.
 for i, v in pairs(Handle:GetChildren()) do
@@ -83,6 +87,41 @@ function UntagHumanoid(humanoid)
 	end
 end
 
+function OnHumanoidDied(humanoid)
+	-- Check if this humanoid was damaged by our sword user
+	if DamagedHumanoids[humanoid] then
+		-- Clean up the connection
+		DamagedHumanoids[humanoid]:Disconnect()
+		DamagedHumanoids[humanoid] = nil
+		
+		-- Check if the humanoid has our creator tag
+		local creatorTag = humanoid:FindFirstChild("creator")
+		if creatorTag and creatorTag.Value == Player then
+			-- This is a confirmed kill - heal the sword user
+			if CheckIfAlive() and Humanoid then
+				local healAmount = DamageValues.HealOnKill
+				Humanoid.Health = math.min(Humanoid.Health + healAmount, Humanoid.MaxHealth)
+				
+				-- Play healing sound effect if available
+				local healSound = Handle:FindFirstChild("Heal")
+				if healSound and healSound:IsA("Sound") then
+					healSound:Play()
+				end
+			end
+		end
+	end
+end
+
+function CleanupDamagedHumanoids()
+	-- Clean up all tracked humanoid connections
+	for humanoid, connection in pairs(DamagedHumanoids) do
+		if connection then
+			connection:Disconnect()
+		end
+	end
+	DamagedHumanoids = {}
+end
+
 function Blow(Hit)
 	if not Hit or not Hit.Parent or not CheckIfAlive() or not ToolEquipped then
 		return
@@ -109,6 +148,14 @@ function Blow(Hit)
 	end
 	UntagHumanoid(humanoid)
 	TagHumanoid(humanoid, Player)
+	
+	-- Track this humanoid for kill detection if not already tracked
+	if not DamagedHumanoids[humanoid] then
+		DamagedHumanoids[humanoid] = humanoid.Died:Connect(function()
+			OnHumanoidDied(humanoid)
+		end)
+	end
+	
 	humanoid:TakeDamage(Damage)	
 end
 
@@ -220,6 +267,8 @@ end
 function Unequipped()
 	Tool.Grip = Grips.Up
 	ToolEquipped = false
+	-- Clean up tracked humanoid connections to prevent memory leaks
+	CleanupDamagedHumanoids()
 end
 
 Tool.Activated:Connect(Activated)
